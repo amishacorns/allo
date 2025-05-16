@@ -9,13 +9,22 @@ class Layout:
     def __init__(self, placement):
         # R: replicated, S: shared
         # e.g., S0S1R, S0R, RS0
-        pattern = r"([A-Z])(\d)?"
+        pattern = r"([A-Z])(\d*)"
         matches = re.findall(pattern, placement)
+        if not matches or "".join(l + n for l, n in matches) != placement:
+            raise ValueError(f"Invalid layout string: {placement}")
+
         result = []
         for letter, number in matches:
-            if number:
+            if letter not in ("R", "S"):
+                raise ValueError(f"Unknown layout opcode `{letter}`")
+            if letter == "S":
+                if not number:
+                    raise ValueError("`S` must be followed by a dimension index")
                 result.append((letter, int(number)))
-            else:
+            else:  # letter == "R"
+                if number:
+                    raise ValueError("`R` should not have a dimension index")
                 result.append((letter, None))
         self.placement = result
 
