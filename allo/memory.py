@@ -9,7 +9,7 @@ class Layout:
     def __init__(self, placement):
         # R: replicated, S: shared
         # e.g., S0S1R, S0R, RS0
-        pattern = r"([A-Z])(\d)?"
+        pattern = r"([A-Z])(\d*)"
         matches = re.findall(pattern, placement)
         result = []
         for letter, number in matches:
