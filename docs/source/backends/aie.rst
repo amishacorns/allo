@@ -41,7 +41,7 @@ Install from Source
 
 Please follow the general instructions in :ref:`Install from Source <install-from-source>` to install the LLVM-19 project and the Allo package. In the following, we suppose you have already installed the LLVM-19 project and enable the ``allo`` conda environment.
 
-We depend on the `MLIR-AIE <https://github.com/Xilinx/mlir-aie>`_ project to compile the Allo IR to AIE, but since we are using a specific LLVM-19 version that is not compatible with the latest MLIR-AIE project, we cannot follow the offical instructions but build the MLIR-AIE project from source.
+We depend on the `MLIR-AIE <https://github.com/Xilinx/mlir-aie>`_ project to compile the Allo IR to AIE, but since we are using a specific LLVM-19 version that is not compatible with the latest MLIR-AIE project, we cannot follow the official instructions but build the MLIR-AIE project from source.
 
 First, clone the MLIR-AIE project and checkout to the specific commit.
 
