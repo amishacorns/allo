@@ -76,6 +76,12 @@ def test_all_gemm():
 
     s = allo.customize(range_for_gemm)
     print(s.module)
+    mod = s.build()
+    np_A = np.random.randint(0, 10, size=(32, 32)).astype(np.int32)
+    np_B = np.random.randint(0, 10, size=(32, 32)).astype(np.int32)
+    np_expected = np.matmul(np_A, np_B)
+    np_res = mod(np_A, np_B)
+    np.testing.assert_allclose(np_res, np_expected)
 
     def float_gemm(A: float32[32, 32], B: float32[32, 32]) -> float32[32, 32]:
         C: float32[32, 32] = 0.0
@@ -87,6 +93,12 @@ def test_all_gemm():
 
     s = allo.customize(float_gemm)
     print(s.module)
+    mod = s.build()
+    np_A = np.random.uniform(size=(32, 32)).astype(np.float32)
+    np_B = np.random.uniform(size=(32, 32)).astype(np.float32)
+    np_expected = np.matmul(np_A, np_B)
+    np_res = mod(np_A, np_B)
+    np.testing.assert_allclose(np_res, np_expected, rtol=1e-5, atol=1e-5)
 
     def reduction_gemm(A: int32[32, 32], B: int32[32, 32]) -> int32[32, 32]:
         C: int32[32, 32] = 0
@@ -99,6 +111,12 @@ def test_all_gemm():
 
     s = allo.customize(reduction_gemm)
     print(s.module)
+    mod = s.build()
+    np_A = np.random.randint(0, 10, size=(32, 32)).astype(np.int32)
+    np_B = np.random.randint(0, 10, size=(32, 32)).astype(np.int32)
+    np_expected = np.matmul(np_A, np_B)
+    np_res = mod(np_A, np_B)
+    np.testing.assert_allclose(np_res, np_expected)
 
 
 def test_range_for():
