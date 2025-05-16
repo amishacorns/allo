@@ -7,8 +7,8 @@ import difflib
 
 try:
     import past
-except ImportError:
-    pass
+except ImportError:  # pragma: no cover - optional dependency
+    past = None
 
 
 def verify(schedule_a, schedule_b):
@@ -18,6 +18,10 @@ def verify(schedule_a, schedule_b):
     If equivalence fails, output a diff of the generated code files to help diagnose the
     source of the mismatch.
     """
+    if past is None:
+        raise ImportError(
+            "The PAST package is required for schedule verification."
+        )
     temp_dir = "tmp"
     os.makedirs(temp_dir, exist_ok=True)
 
