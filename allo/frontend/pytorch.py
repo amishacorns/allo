@@ -185,10 +185,17 @@ class TorchBuilder:
             torch.nn.ReLU: "relu",
             torch.nn.GELU: "gelu",
             torch.nn.LayerNorm: "layernorm",
+            torch.nn.Conv1d: "conv1d",
             torch.nn.Conv2d: "conv2d",
             torch.nn.MaxPool2d: "maxpool2d",
             torch.nn.AvgPool2d: "avgpool2d",
             torch.nn.BatchNorm2d: "batchnorm2d",
+            torch.nn.Sigmoid: "sigmoid",
+            torch.nn.Tanh: "tanh",
+            torch.nn.LeakyReLU: "leakyrelu",
+            torch.nn.MaxPool1d: "maxpool1d",
+            torch.nn.AvgPool1d: "avgpool1d",
+            torch.nn.Flatten: "flatten",
         }.get(type(module), None)
         if self.leaf_modules:
             for leaf_module in self.leaf_modules:
@@ -221,6 +228,12 @@ class TorchBuilder:
             F.linear: "linear",
             F.gelu: "gelu",
             F.relu: "relu",
+            F.leaky_relu: "leakyrelu",
+            torch.sigmoid: "sigmoid",
+            torch.tanh: "tanh",
+            F.max_pool1d: "maxpool1d",
+            F.avg_pool1d: "avgpool1d",
+            torch.flatten: "flatten",
             F.dropout: "identity",
             torch.tril: "tril",
             torch.cat: "concat",
@@ -459,6 +472,46 @@ class TorchBuilder:
             self.subfunctions.append(src)
         return f"{node.name} = KVCache({', '.join([get_var_name(arg) for arg in node.args])})"
 
+    def build_conv1d(self, node):
+        # Only supports bias, dilation=1
+        module = self.get_module(node.target)
+        target_name = node.target.replace(".", "_")
+        inp = get_var_name(node.args[0])
+        weight = get_var_name(target_name + "_weight")
+        input_shape = tuple(node.args[0].meta["tensor_meta"].shape)
+
+        has_bias = hasattr(module, "bias") and module.bias is not None
+        bias = get_var_name(target_name + "_bias") if has_bias else None
+        padding = module.padding if isinstance(module.padding, int) else module.padding[0]
+        stride = module.stride if isinstance(module.stride, int) else module.stride[0]
+        dilation = module.dilation if isinstance(module.dilation, int) else module.dilation[0]
+
+        out_shape = tuple(node.meta["tensor_meta"].shape)
+        weight_shape = tuple(self.named_params[f"{str(node.target)}.weight"].shape)
+
+        if len(input_shape) == 3:
+            B, Cin, L = input_shape
+            B, Cout, Ol = out_shape
+            _, Cin, K = weight_shape
+
+            name_id = self.get_unique_id("conv1d")
+
+            self.composition.append(
+                (
+                    "conv1d",
+                    name_id,
+                    [float32, B, Cin, Cout, L, K, Ol, stride, padding],
+                )
+            )
+
+            if dilation != 1:
+                raise NotImplementedError(f"Unsupported conv1d with dilation: {dilation}")
+
+            if has_bias:
+                return f'{node.name} = nn.conv1d[float32, {B}, {Cin}, {Cout}, {L}, {K}, {Ol}, {stride}, {padding}, "{name_id}"]({inp}, {weight}, {bias})'
+            raise NotImplementedError("Unsupported conv1d without bias")
+        raise NotImplementedError(f"Unsupported shape for conv1d: {input_shape}")
+
     def build_conv2d(self, node):
         # The current implementation only supports conv2d with bias, dialation=1, shape = 4
         module = self.get_module(node.target)
@@ -593,3 +646,105 @@ class TorchBuilder:
 
             return f'{node.name} = nn.batchnorm2d[float32, {B}, {C}, {H}, {W}, "{name_id}"]({inp}, {gamma}, {beta}, {eps}, {running_mean}, {running_var})'
         raise NotImplementedError(f"Unsupported shape for batchnorm2d: {input_shape}")
+
+    def build_sigmoid(self, node):
+        inp = get_var_name(node.args[0])
+        shape = tuple(node.meta["tensor_meta"].shape)
+        name_id = self.get_unique_id("sigmoid")
+        if len(shape) == 2:
+            L, D = shape
+            self.composition.append(("sigmoid2d", name_id, [float32, L, D]))
+            return f'{node.name} = nn.sigmoid2d[float32, {L}, {D}, "{name_id}"]({inp})'
+        if len(shape) == 4:
+            B, C, H, W = shape
+            self.composition.append(("sigmoid4d", name_id, [float32, B, C, H, W]))
+            return f'{node.name} = nn.sigmoid4d[float32, {B}, {C}, {H}, {W}, "{name_id}"]({inp})'
+        raise NotImplementedError("Unsupported shape for sigmoid")
+
+    def build_tanh(self, node):
+        inp = get_var_name(node.args[0])
+        shape = tuple(node.meta["tensor_meta"].shape)
+        name_id = self.get_unique_id("tanh")
+        if len(shape) == 2:
+            L, D = shape
+            self.composition.append(("tanh2d", name_id, [float32, L, D]))
+            return f'{node.name} = nn.tanh2d[float32, {L}, {D}, "{name_id}"]({inp})'
+        if len(shape) == 4:
+            B, C, H, W = shape
+            self.composition.append(("tanh4d", name_id, [float32, B, C, H, W]))
+            return f'{node.name} = nn.tanh4d[float32, {B}, {C}, {H}, {W}, "{name_id}"]({inp})'
+        raise NotImplementedError("Unsupported shape for tanh")
+
+    def build_leakyrelu(self, node):
+        inp = get_var_name(node.args[0])
+        shape = tuple(node.meta["tensor_meta"].shape)
+        name_id = self.get_unique_id("leakyrelu")
+        if len(shape) == 2:
+            L, D = shape
+            self.composition.append(("leaky_relu2d", name_id, [float32, L, D]))
+            return f'{node.name} = nn.leaky_relu2d[float32, {L}, {D}, "{name_id}"]({inp})'
+        if len(shape) == 4:
+            B, C, H, W = shape
+            self.composition.append(("leaky_relu4d", name_id, [float32, B, C, H, W]))
+            return f'{node.name} = nn.leaky_relu4d[float32, {B}, {C}, {H}, {W}, "{name_id}"]({inp})'
+        raise NotImplementedError("Unsupported shape for leakyrelu")
+
+    def build_maxpool1d(self, node):
+        module = self.get_module(node.target)
+        inp = get_var_name(node.args[0])
+        input_shape = tuple(node.args[0].meta["tensor_meta"].shape)
+
+        kernel_size = module.kernel_size
+        stride = module.stride
+        padding = module.padding
+
+        out_shape = tuple(node.meta["tensor_meta"].shape)
+
+        if len(input_shape) == 3:
+            B, C, L = input_shape
+            B, C, Lo = out_shape
+            K = kernel_size
+            name_id = self.get_unique_id("maxpool1d")
+
+            self.composition.append(
+                ("maxpool1d", name_id, [float32, B, C, L, K, Lo, stride, padding])
+            )
+
+            return f'{node.name} = nn.maxpool1d[float32, {B}, {C}, {L}, {K}, {Lo}, {stride}, {padding}, "{name_id}"]({inp})'
+        raise NotImplementedError(f"Unsupported shape for maxpool1d: {input_shape}")
+
+    def build_avgpool1d(self, node):
+        module = self.get_module(node.target)
+        inp = get_var_name(node.args[0])
+        input_shape = tuple(node.args[0].meta["tensor_meta"].shape)
+
+        kernel_size = module.kernel_size
+        stride = module.stride
+        padding = module.padding
+
+        out_shape = tuple(node.meta["tensor_meta"].shape)
+
+        if len(input_shape) == 3:
+            B, C, L = input_shape
+            B, C, Lo = out_shape
+            K = kernel_size
+            name_id = self.get_unique_id("avgpool1d")
+
+            self.composition.append(
+                ("avgpool1d", name_id, [float32, B, C, L, K, Lo, stride, padding])
+            )
+
+            return f'{node.name} = nn.avgpool1d[float32, {B}, {C}, {L}, {K}, {Lo}, {stride}, {padding}, "{name_id}"]({inp})'
+        raise NotImplementedError(f"Unsupported shape for avgpool1d: {input_shape}")
+
+    def build_flatten(self, node):
+        inp = get_var_name(node.args[0])
+        shape = tuple(node.meta["tensor_meta"].shape)
+        if len(shape) == 2:
+            return f"{node.name} = {inp}"
+        if len(shape) == 4:
+            B, C, H, W = shape
+            name_id = self.get_unique_id("flatten")
+            self.composition.append(("flatten4d", name_id, [float32, B, C, H, W]))
+            return f'{node.name} = nn.flatten4d[float32, {B}, {C}, {H}, {W}, "{name_id}"]({inp})'
+        raise NotImplementedError("Unsupported shape for flatten")
