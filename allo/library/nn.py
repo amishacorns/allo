@@ -201,6 +201,31 @@ def scaled_dot_product_attention[
     return Z
 
 
+def conv1d[
+    Ty, B, Cin, Cout, L, K, Ol, S, Pd
+](inp: "Ty[B, Cin, L]", kernel: "Ty[Cout, Cin, K]", bias: "Ty[Cout]") -> "Ty[B, Cout, Ol]":
+    """1D convolution."""
+    Z: Ty[B, Cout, Ol]
+
+    # Current implementation does not support dilation other than 1
+    for batch, cout, ol in dsl.grid(B, Cout, Ol):
+        temp: Ty = bias[cout]
+
+        for cin, k in dsl.grid(Cin, K):
+            pos: Ty = ol * S + k - Pd
+            if pos >= 0 and pos < L:
+                temp += inp[batch, cin, pos] * kernel[cout, cin, k]
+
+        Z[batch, cout, ol] = temp
+    return Z
+
+
+def schedule_conv1d(s):
+    s.pipeline("conv1d:cout")
+    s.pipeline("conv1d:ol")
+    return s
+
+
 def conv2d[
     Ty, B, Cin, Cout, H, W, Kh, Kw, Oh, Ow, Sh, Sw, Pd0, Pd1
 ](
@@ -296,4 +321,138 @@ def batchnorm2d[
 
 def schedule_batchnorm2d(s):
     s.pipeline("batchnorm2d:w")
+    return s
+
+def sigmoid2d[Ty, L, D](X: "Ty[L, D]") -> "Ty[L, D]":
+    Z: Ty[L, D]
+    for i, j in dsl.grid(L, D, name="sigmoid"):
+        Z[i, j] = 1.0 / (1.0 + dsl.exp(-X[i, j]))
+    return Z
+
+
+def schedule_sigmoid2d(s):
+    s.pipeline("sigmoid:j")
+    return s
+
+
+def sigmoid4d[Ty, N, C, H, W](X: "Ty[N, C, H, W]") -> "Ty[N, C, H, W]":
+    Z: Ty[N, C, H, W]
+    for n, c, h, w in dsl.grid(N, C, H, W, name="sigmoid4d"):
+        Z[n, c, h, w] = 1.0 / (1.0 + dsl.exp(-X[n, c, h, w]))
+    return Z
+
+
+def schedule_sigmoid4d(s):
+    s.pipeline("sigmoid4d:w")
+    return s
+
+
+def tanh2d[Ty, L, D](X: "Ty[L, D]") -> "Ty[L, D]":
+    Z: Ty[L, D]
+    for i, j in dsl.grid(L, D, name="tanh"):
+        Z[i, j] = dsl.tanh(X[i, j])
+    return Z
+
+
+def schedule_tanh2d(s):
+    s.pipeline("tanh:j")
+    return s
+
+
+def tanh4d[Ty, N, C, H, W](X: "Ty[N, C, H, W]") -> "Ty[N, C, H, W]":
+    Z: Ty[N, C, H, W]
+    for n, c, h, w in dsl.grid(N, C, H, W, name="tanh4d"):
+        Z[n, c, h, w] = dsl.tanh(X[n, c, h, w])
+    return Z
+
+
+def schedule_tanh4d(s):
+    s.pipeline("tanh4d:w")
+    return s
+
+
+def leaky_relu2d[Ty, L, D](X: "Ty[L, D]") -> "Ty[L, D]":
+    Z: Ty[L, D]
+    for i, j in dsl.grid(L, D, name="leakyrelu"):
+        val: Ty = X[i, j]
+        Z[i, j] = val if val > 0 else 0.01 * val
+    return Z
+
+
+def schedule_leaky_relu2d(s):
+    s.pipeline("leakyrelu:j")
+    return s
+
+
+def leaky_relu4d[Ty, N, C, H, W](X: "Ty[N, C, H, W]") -> "Ty[N, C, H, W]":
+    Z: Ty[N, C, H, W]
+    for n, c, h, w in dsl.grid(N, C, H, W, name="leakyrelu4d"):
+        val: Ty = X[n, c, h, w]
+        Z[n, c, h, w] = val if val > 0 else 0.01 * val
+    return Z
+
+
+def schedule_leaky_relu4d(s):
+    s.pipeline("leakyrelu4d:w")
+    return s
+
+
+def maxpool1d[Ty, B, C, L, K, Lo, S, Pd](inp: "Ty[B, C, L]") -> "Ty[B, C, Lo]":
+    Z: Ty[B, C, Lo]
+    for batch, c, lo in dsl.grid(B, C, Lo):
+        max_val: Ty = -1000000000000.0
+        for k in range(K):
+            pos: Ty = lo * S + k - Pd
+            if pos >= 0 and pos < L:
+                new_max: Ty = max(max_val, inp[batch, c, pos])
+                max_val = new_max
+        Z[batch, c, lo] = max_val
+    return Z
+
+
+def schedule_maxpool1d(s):
+    s.pipeline("maxpool1d:c")
+    s.pipeline("maxpool1d:lo")
+    return s
+
+
+def avgpool1d[Ty, B, C, L, K, Lo, S, Pd](inp: "Ty[B, C, L]") -> "Ty[B, C, Lo]":
+    Z: Ty[B, C, Lo]
+    for batch, c, lo in dsl.grid(B, C, Lo):
+        temp: Ty = 0.0
+        for k in range(K):
+            pos: Ty = lo * S + k - Pd
+            if pos >= 0 and pos < L:
+                temp += inp[batch, c, pos]
+        Z[batch, c, lo] = temp / K
+    return Z
+
+
+def schedule_avgpool1d(s):
+    s.pipeline("avgpool1d:c")
+    s.pipeline("avgpool1d:lo")
+    return s
+
+
+def flatten4d[Ty, B, C, H, W](X: "Ty[B, C, H, W]") -> "Ty[B, C * H * W]":
+    Z: Ty[B, C * H * W]
+    for b, c, h, w in dsl.grid(B, C, H, W, name="flatten"):
+        Z[b, (c * H + h) * W + w] = X[b, c, h, w]
+    return Z
+
+
+def schedule_flatten4d(s):
+    s.pipeline("flatten:w")
+    return s
+
+
+def dropout2d[Ty, L, D](X: "Ty[L, D]") -> "Ty[L, D]":
+    Z: Ty[L, D]
+    for i, j in dsl.grid(L, D, name="dropout"):
+        Z[i, j] = X[i, j]
+    return Z
+
+
+def schedule_dropout2d(s):
+    s.pipeline("dropout:j")
     return s

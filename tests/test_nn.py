@@ -323,6 +323,40 @@ def np_conv2d(inp, filter, stride=1, padding=0):
     return out
 
 
+def np_conv1d(inp, filter, stride=1, padding=0):
+    N, C, L = inp.shape
+    F, _, K = filter.shape
+    L_out = (L + 2 * padding - K) // stride + 1
+    out = np.zeros((N, F, L_out))
+    inp_padded = np.pad(inp, ((0,), (0,), (padding,)), mode="constant")
+    for n, f, l in np.ndindex(N, F, L_out):
+        out[n, f, l] = np.sum(
+            inp_padded[n, :, l * stride : l * stride + K] * filter[f]
+        )
+    return out
+
+
+def test_conv1d():
+    from allo.library.nn import conv1d
+
+    N, C, L = 1, 3, 16
+    K, F, S, P = 3, 2, 2, 1
+
+    inp = np.random.randn(N, C, L).astype(np.float32)
+    kernel = np.random.randn(F, C, K).astype(np.float32)
+    bias = np.random.randn(F).astype(np.float32)
+
+    Lo = (L + 2 * P - K) // S + 1
+
+    s = allo.customize(conv1d, instantiate=[float32, N, C, F, L, K, Lo, S, P])
+    mod = s.build()
+    allo_out = mod(inp, kernel, bias)
+    np_out = np_conv1d(inp, kernel, S, P) + bias.reshape(1, F, 1)
+    np.testing.assert_allclose(allo_out, np_out, atol=1e-3)
+    print("Passed!")
+    print(s.build(target="vhls"))
+
+
 def test_conv2d():
     from allo.library.nn import conv2d
 
@@ -428,6 +462,98 @@ def test_batchnorm2d():
     np.testing.assert_allclose(allo_out, np_out, rtol=1e-04)
     print("Passed!")
     print(s.build(target="vhls"))
+
+
+def test_sigmoid2d():
+    from allo.library.nn import sigmoid2d
+
+    L, D = 4, 6
+    inp = np.random.randn(L, D).astype(np.float32)
+
+    s = allo.customize(sigmoid2d, instantiate=[float32, L, D])
+    mod = s.build()
+    allo_out = mod(inp)
+    np_out = 1 / (1 + np.exp(-inp))
+    np.testing.assert_allclose(allo_out, np_out, atol=1e-5)
+
+
+def test_tanh2d():
+    from allo.library.nn import tanh2d
+
+    L, D = 4, 6
+    inp = np.random.randn(L, D).astype(np.float32)
+
+    s = allo.customize(tanh2d, instantiate=[float32, L, D])
+    mod = s.build()
+    allo_out = mod(inp)
+    np_out = np.tanh(inp)
+    np.testing.assert_allclose(allo_out, np_out, atol=1e-5)
+
+
+def test_leakyrelu2d():
+    from allo.library.nn import leaky_relu2d
+
+    L, D = 4, 6
+    inp = np.random.randn(L, D).astype(np.float32)
+
+    s = allo.customize(leaky_relu2d, instantiate=[float32, L, D])
+    mod = s.build()
+    allo_out = mod(inp)
+    np_out = np.where(inp > 0, inp, 0.01 * inp)
+    np.testing.assert_allclose(allo_out, np_out, atol=1e-5)
+
+
+def test_maxpool1d():
+    from allo.library.nn import maxpool1d
+
+    N, C, L = 1, 3, 8
+    K, S, P = 2, 2, 0
+
+    inp = np.random.randn(N, C, L).astype(np.float32)
+
+    Lo = (L + 2 * P - K) // S + 1
+    s = allo.customize(maxpool1d, instantiate=[float32, N, C, L, K, Lo, S, P])
+    mod = s.build()
+    allo_out = mod(inp)
+
+    np_out = np.zeros((N, C, Lo), dtype=np.float32)
+    for n, c, l in np.ndindex(N, C, Lo):
+        start = l * S
+        np_out[n, c, l] = np.max(inp[n, c, start : start + K])
+    np.testing.assert_allclose(allo_out, np_out)
+
+
+def test_avgpool1d():
+    from allo.library.nn import avgpool1d
+
+    N, C, L = 1, 3, 8
+    K, S, P = 2, 2, 0
+
+    inp = np.random.randn(N, C, L).astype(np.float32)
+
+    Lo = (L + 2 * P - K) // S + 1
+    s = allo.customize(avgpool1d, instantiate=[float32, N, C, L, K, Lo, S, P])
+    mod = s.build()
+    allo_out = mod(inp)
+
+    np_out = np.zeros((N, C, Lo), dtype=np.float32)
+    for n, c, l in np.ndindex(N, C, Lo):
+        start = l * S
+        np_out[n, c, l] = np.mean(inp[n, c, start : start + K])
+    np.testing.assert_allclose(allo_out, np_out)
+
+
+def test_flatten4d():
+    from allo.library.nn import flatten4d
+
+    B, C, H, W = 2, 3, 4, 5
+    inp = np.random.randn(B, C, H, W).astype(np.float32)
+
+    s = allo.customize(flatten4d, instantiate=[float32, B, C, H, W])
+    mod = s.build()
+    allo_out = mod(inp)
+    np_out = inp.reshape(B, C * H * W)
+    np.testing.assert_allclose(allo_out, np_out)
 
 
 if __name__ == "__main__":
